@@ -15,6 +15,10 @@ std::vector<uint8_t> hex_to_bytes(const std::string& hex) {
     return bytes;
 }
 
+// Per Monero mining protocol, the 4-byte nonce is located at offset 39 in the block hashing blob.
+// It is encoded in little-endian format.
+const unsigned int NONCE_OFFSET = 39;
+
 int main(int argc, char* argv[]) {
     if (argc != 4) {
         std::cerr << "Usage: " << argv[0] << " <key_hex> <blob_hex> <nonce_int>" << std::endl;
@@ -23,17 +27,26 @@ int main(int argc, char* argv[]) {
 
     std::string key_hex = argv[1];
     std::string blob_hex = argv[2];
-    uint32_t nonce = std::stoul(argv[3]);
+    uint32_t nonce;
+    try {
+        nonce = std::stoul(argv[3]);
+    } catch (const std::invalid_argument& e) {
+        std::cerr << "Error: Invalid nonce '" << argv[3] << "'. Please provide a valid integer." << std::endl;
+        return 1;
+    } catch (const std::out_of_range& e) {
+        std::cerr << "Error: Nonce '" << argv[3] << "' is out of range." << std::endl;
+        return 1;
+    }
 
     std::vector<uint8_t> key = hex_to_bytes(key_hex);
     std::vector<uint8_t> blob = hex_to_bytes(blob_hex);
 
     // Apply nonce to blob
-    if (blob.size() >= 43) {
-        blob[39] = (nonce >> 0) & 0xFF;
-        blob[40] = (nonce >> 8) & 0xFF;
-        blob[41] = (nonce >> 16) & 0xFF;
-        blob[42] = (nonce >> 24) & 0xFF;
+    if (blob.size() >= NONCE_OFFSET + 4) {
+        blob[NONCE_OFFSET + 0] = (nonce >> 0) & 0xFF;
+        blob[NONCE_OFFSET + 1] = (nonce >> 8) & 0xFF;
+        blob[NONCE_OFFSET + 2] = (nonce >> 16) & 0xFF;
+        blob[NONCE_OFFSET + 3] = (nonce >> 24) & 0xFF;
     } else {
         std::cerr << "Blob is too small" << std::endl;
         return 1;
@@ -45,6 +58,13 @@ int main(int argc, char* argv[]) {
         std::cerr << "Failed to allocate cache" << std::endl;
         return 1;
     }
+
+    if (key.empty()) {
+        std::cerr << "Error: Invalid key provided. Key cannot be empty." << std::endl;
+        randomx_release_cache(cache);
+        return 1;
+    }
+
     randomx_init_cache(cache, key.data(), key.size());
 
     randomx_vm *vm = randomx_create_vm(flags, cache, nullptr);
